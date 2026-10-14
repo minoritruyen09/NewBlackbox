@@ -24,8 +24,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-         with:
-             packages: ''
+        with:
+          packages: ""
 
       - name: Install SDK platform and NDK
         run: |
