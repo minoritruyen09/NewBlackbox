@@ -23,7 +23,7 @@ class BlackBoxLoader {
     
     private var mUseVpnNetwork by AppSharedPreferenceDelegate(App.getContext(), false)
 
-    private var mDisableFlagSecure by AppSharedPreferenceDelegate(App.getContext(), false)
+    private var mDisableFlagSecure by AppSharedPreferenceDelegate(App.getContext(), true)
 
     fun hideRoot(): Boolean {
         return try {
