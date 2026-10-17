@@ -221,6 +221,7 @@ public final class AppInstrumentation extends BaseInstrumentationDelegate implem
     @Override
     public void callApplicationOnCreate(Application app) {
         checkHCallback();
+        top.niunaijun.blackbox.utils.ScreenshotButton.install(app);
         super.callApplicationOnCreate(app);
     }
 
