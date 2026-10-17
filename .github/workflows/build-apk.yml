@@ -32,13 +32,13 @@ jobs:
           yes | sdkmanager --licenses > /dev/null || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;29.0.13846066"
 
-      - name: Build debug APK
+      - name: Build release APK
         run: |
           chmod +x ./gradlew
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
 
       - name: List APKs
-        run: ls -la app/build/outputs/apk/debug/
+        run: ls -la app/build/outputs/apk/release/
 
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
@@ -46,6 +46,6 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: Build ${{ github.run_number }}
           body: |
-            File APK để cài trên điện thoại.
-            Máy ARM 64-bit (đa số điện thoại hiện nay, gồm Xiaomi 11T): chọn file có "arm64-v8a" hoặc "universal".
-          files: app/build/outputs/apk/debug/*.apk
+            Ban release (da toi uu, muot hon ban debug).
+            May ARM 64-bit (Xiaomi 11T): chon file co "arm64-v8a" hoac "universal".
+          files: app/build/outputs/apk/release/*.apk
