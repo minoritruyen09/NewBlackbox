@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.os.Bundle;
 import android.os.PersistableBundle;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.Window;
 
@@ -28,6 +29,7 @@ import top.niunaijun.blackbox.fake.hook.HookManager;
 import top.niunaijun.blackbox.fake.hook.IInjectHook;
 import top.niunaijun.blackbox.fake.service.HCallbackProxy;
 import top.niunaijun.blackbox.fake.service.IActivityClientProxy;
+import top.niunaijun.blackbox.proxy.KeepAliveService;
 import top.niunaijun.blackbox.utils.HackAppUtils;
 import top.niunaijun.blackbox.utils.compat.ActivityCompat;
 import top.niunaijun.blackbox.utils.compat.ActivityManagerCompat;
@@ -40,13 +42,69 @@ public final class AppInstrumentation extends BaseInstrumentationDelegate implem
     private static AppInstrumentation sAppInstrumentation;
 
     /**
-     * true: khi nguoi dung roi app (Home / Recents / doi app) thi KHONG bao cho app ao biet
-     * (khong goi onUserLeaveHint, onPause, va luon bao cua so dang co focus).
+     * true: khi nguoi dung roi app (Home / Recents / doi app) thi app ao van "dang chay":
+     * khong bao onPause / onStop cho no, va moi lan cua so mat focus van bao co focus.
+     * Khi nguoi dung quay lai thi khong bao onStart / onResume lap lai.
+     * Neu chinh app ao tu mo mot activity khac, hoac activity dang finish thi van chay vong doi binh thuong.
      */
     private static final boolean KEEP_RUNNING_WHEN_LEAVING = true;
 
+    /** App ao vua tu goi startActivity trong khoang nay => la dieu huong ben trong, khong phai roi app. */
+    private static final long INTERNAL_LAUNCH_WINDOW_MS = 2000L;
+
+    private static volatile long sInternalLaunchAt = 0L;
+
+    /** Activity vua nhan onUserLeaveHint that su (nguoi dung bam Home / Recents). */
     private static final Set<Activity> sLeaving =
             Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<Activity, Boolean>()));
+
+    /** Activity da bi he thong pause/stop nhung app ao khong duoc bao (van dang "chay"). */
+    private static final Set<Activity> sGhost =
+            Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<Activity, Boolean>()));
+
+    private static Field sCalledField;
+    private static boolean sCalledFieldResolved;
+
+    /** Goi tu hook startActivity cua tien trinh app ao. */
+    public static void markInternalLaunch() {
+        sInternalLaunchAt = SystemClock.uptimeMillis();
+    }
+
+    private static boolean isInternalLaunchRecent() {
+        return SystemClock.uptimeMillis() - sInternalLaunchAt < INTERNAL_LAUNCH_WINDOW_MS;
+    }
+
+    /**
+     * Activity.performStop/performResume... bat buoc mCalled = true sau khi goi onStop/onResume,
+     * neu khong se nem SuperNotCalledException. Khi bo qua callback cua app ao ta tu dat mCalled.
+     */
+    private static synchronized boolean canMarkCalled() {
+        if (!sCalledFieldResolved) {
+            sCalledFieldResolved = true;
+            try {
+                Field f = Activity.class.getDeclaredField("mCalled");
+                f.setAccessible(true);
+                sCalledField = f;
+            } catch (Throwable t) {
+                Log.w(TAG, "cannot access Activity.mCalled: " + t);
+                sCalledField = null;
+            }
+        }
+        return sCalledField != null;
+    }
+
+    private static boolean markSuperCalled(Activity activity) {
+        if (!canMarkCalled()) {
+            return false;
+        }
+        try {
+            sCalledField.setBoolean(activity, true);
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "markSuperCalled failed: " + t);
+            return false;
+        }
+    }
 
     public static AppInstrumentation get() {
         if (sAppInstrumentation == null) {
@@ -142,6 +200,7 @@ public final class AppInstrumentation extends BaseInstrumentationDelegate implem
     @Override
     public void callActivityOnCreate(Activity activity, Bundle icicle, PersistableBundle persistentState) {
         checkActivity(activity);
+        KeepAliveService.onGuestActivityCreated();
         super.callActivityOnCreate(activity, icicle, persistentState);
         installFocusGuard(activity);
     }
@@ -149,33 +208,89 @@ public final class AppInstrumentation extends BaseInstrumentationDelegate implem
     @Override
     public void callActivityOnCreate(Activity activity, Bundle icicle) {
         checkActivity(activity);
+        KeepAliveService.onGuestActivityCreated();
         super.callActivityOnCreate(activity, icicle);
         installFocusGuard(activity);
     }
 
     @Override
     public void callActivityOnUserLeaving(Activity activity) {
-        if (KEEP_RUNNING_WHEN_LEAVING) {
+        // Van bao onUserLeaveHint cho app ao (nhieu app dung no de tu vao Picture-in-Picture).
+        if (KEEP_RUNNING_WHEN_LEAVING && !activity.isFinishing() && !isInternalLaunchRecent()) {
             sLeaving.add(activity);
-            Log.d(TAG, "skip onUserLeaveHint: " + activity.getClass().getName());
-            return;
         }
         super.callActivityOnUserLeaving(activity);
     }
 
     @Override
     public void callActivityOnPause(Activity activity) {
-        if (KEEP_RUNNING_WHEN_LEAVING && sLeaving.remove(activity)) {
-            Log.d(TAG, "skip onPause: " + activity.getClass().getName());
+        if (KEEP_RUNNING_WHEN_LEAVING && sLeaving.remove(activity)
+                && !activity.isFinishing() && canMarkCalled()) {
+            sGhost.add(activity);
+            Log.d(TAG, "keep running, skip onPause: " + activity.getClass().getName());
             return;
         }
         super.callActivityOnPause(activity);
     }
 
     @Override
+    public void callActivityOnStop(Activity activity) {
+        if (sGhost.contains(activity)) {
+            if (markSuperCalled(activity)) {
+                Log.d(TAG, "keep running, skip onStop: " + activity.getClass().getName());
+                return;
+            }
+            // Khong bo qua duoc: bao bu onPause roi onStop de vong doi van nhat quan
+            sGhost.remove(activity);
+            super.callActivityOnPause(activity);
+        }
+        super.callActivityOnStop(activity);
+    }
+
+    @Override
+    public void callActivityOnRestart(Activity activity) {
+        if (sGhost.contains(activity) && markSuperCalled(activity)) {
+            return;
+        }
+        super.callActivityOnRestart(activity);
+    }
+
+    @Override
+    public void callActivityOnStart(Activity activity) {
+        if (sGhost.contains(activity) && markSuperCalled(activity)) {
+            return;
+        }
+        super.callActivityOnStart(activity);
+    }
+
+    @Override
     public void callActivityOnResume(Activity activity) {
         sLeaving.remove(activity);
+        if (sGhost.remove(activity) && markSuperCalled(activity)) {
+            Log.d(TAG, "keep running, skip duplicate onResume: " + activity.getClass().getName());
+            return;
+        }
         super.callActivityOnResume(activity);
+    }
+
+    @Override
+    public void callActivityOnDestroy(Activity activity) {
+        sLeaving.remove(activity);
+        if (sGhost.remove(activity)) {
+            // Activity bi huy khi dang "chay ngam": bao bu onPause/onStop truoc onDestroy
+            try {
+                super.callActivityOnPause(activity);
+            } catch (Throwable t) {
+                Log.w(TAG, "late onPause failed: " + t);
+            }
+            try {
+                super.callActivityOnStop(activity);
+            } catch (Throwable t) {
+                Log.w(TAG, "late onStop failed: " + t);
+            }
+        }
+        KeepAliveService.onGuestActivityDestroyed();
+        super.callActivityOnDestroy(activity);
     }
 
     /**
