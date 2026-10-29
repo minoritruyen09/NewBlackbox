@@ -273,6 +273,7 @@ public class ActivityStack {
         if (targetApp == null) {
             throw new RuntimeException("Unable to create process, name:" + info.name);
         }
+        top.niunaijun.blackbox.proxy.KeepAliveService.startFor(BlackBoxCore.getContext(), targetApp.bpid);
         return getStartStubActivityIntentInner(intent, targetApp.bpid, userId, stubRecord, info);
     }
 
