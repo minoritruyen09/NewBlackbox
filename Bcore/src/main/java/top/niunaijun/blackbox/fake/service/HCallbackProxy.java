@@ -203,6 +203,10 @@ public class HCallbackProxy implements IInjectHook, Handler.Callback {
             assert appPackageName != null;
 
             ServiceInfo serviceInfo = BRActivityThreadCreateServiceData.get(data).info();
+            if (serviceInfo.name.startsWith("top.niunaijun.blackbox.proxy.KeepAliveService")) {
+                // dich vu giu tien trinh song cua chinh BlackBox, khong phai service cua app ao
+                return false;
+            }
             if (!serviceInfo.name.equals(ProxyManifest.getProxyService(BActivityThread.getAppPid()))
                     && !serviceInfo.name.equals(ProxyManifest.getProxyJobService(BActivityThread.getAppPid()))) {
                 Slog.d(TAG, "handleCreateService: " + data);
