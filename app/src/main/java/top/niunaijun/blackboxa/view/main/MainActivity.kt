@@ -69,6 +69,8 @@ class MainActivity : LoadingActivity() {
             
             checkVpnPermission()
 
+            top.niunaijun.blackbox.proxy.KeepAliveService.requestBatteryExemptionIfNeeded(this)
+
             try {
                 BlackBoxCore.get().onAfterMainActivityOnCreate(this)
             } catch (e: Exception) {
