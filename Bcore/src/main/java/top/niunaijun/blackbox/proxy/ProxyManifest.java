@@ -36,6 +36,10 @@ public class ProxyManifest {
         return String.format(Locale.CHINA, "top.niunaijun.blackbox.proxy.ProxyService$P%d", index);
     }
 
+    public static String getKeepAliveService(int index) {
+        return String.format(Locale.CHINA, "top.niunaijun.blackbox.proxy.KeepAliveService$P%d", index);
+    }
+
     public static String getProxyJobService(int index) {
         return String.format(Locale.CHINA, "top.niunaijun.blackbox.proxy.ProxyJobService$P%d", index);
     }
