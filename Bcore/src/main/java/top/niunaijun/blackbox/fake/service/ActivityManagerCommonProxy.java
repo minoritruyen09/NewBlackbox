@@ -36,6 +36,7 @@ public class ActivityManagerCommonProxy {
             Intent intent = getIntent(args);
             Slog.d(TAG, "Hook in : " + intent);
             assert intent != null;
+            top.niunaijun.blackbox.fake.delegate.AppInstrumentation.markInternalLaunch();
             
             
             if (intent.getParcelableExtra("_B_|_target_") != null) {
